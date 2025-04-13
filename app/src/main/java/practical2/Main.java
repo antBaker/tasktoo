@@ -4,11 +4,13 @@
 package practical2;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.w3c.dom.*;
+import org.xml.sax.Attributes;
 import org.xml.sax.InputSource;
+import org.xml.sax.helpers.DefaultHandler;
+import org.xml.sax.XMLReader;
 
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.SAXParser;
+import javax.xml.parsers.SAXParserFactory;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -16,7 +18,7 @@ import java.util.*;
 
 public class Main {
 
-    // Class representing the fields we want to extract from each record in the XML.
+    // Class representing the fields we want to extract from each record.
     static class Record {
         String name;
         String postalZip;
@@ -25,32 +27,110 @@ public class Main {
         String address;
         List<Integer> list;
 
-        public Record(String name, String postalZip, String region, String country, String address, List<Integer> list) {
-            this.name = name;
-            this.postalZip = postalZip;
-            this.region = region;
-            this.country = country;
-            this.address = address;
-            this.list = list;
+        public Record() {
+            list = new ArrayList<>();
+        }
+
+        @Override
+        public String toString() {
+            return "Record{" +
+                    "name='" + name + '\'' +
+                    ", postalZip='" + postalZip + '\'' +
+                    ", region='" + region + '\'' +
+                    ", country='" + country + '\'' +
+                    ", address='" + address + '\'' +
+                    ", list=" + list +
+                    '}';
+        }
+    }
+
+    // Custom SAX handler to process XML events.
+    static class RecordHandler extends DefaultHandler {
+        private List<Record> records = new ArrayList<>();
+        private Record currentRecord;
+        private StringBuilder currentValue = new StringBuilder();
+        private String currentElement; // track current element
+
+        public List<Record> getRecords() {
+            return records;
+        }
+
+        @Override
+        public void startElement(String uri, String localName, String qName, Attributes attributes) {
+            currentValue.setLength(0); // clear the characters buffer
+            if ("record".equalsIgnoreCase(qName)) {
+                currentRecord = new Record();
+            }
+            currentElement = qName;
+        }
+
+        @Override
+        public void characters(char[] ch, int start, int length) {
+            currentValue.append(ch, start, length);
+        }
+
+        @Override
+        public void endElement(String uri, String localName, String qName) {
+            String content = currentValue.toString().trim();
+            if (currentRecord != null) {
+                switch (qName.toLowerCase()) {
+                    case "name":
+                        currentRecord.name = content;
+                        break;
+                    case "postalzip":
+                        currentRecord.postalZip = content;
+                        break;
+                    case "region":
+                        currentRecord.region = content;
+                        break;
+                    case "country":
+                        currentRecord.country = content;
+                        break;
+                    case "address":
+                        currentRecord.address = content;
+                        break;
+                    case "list":
+                        if (!content.isEmpty()) {
+                            String[] items = content.split(",");
+                            for (String item : items) {
+                                try {
+                                    if (!item.trim().isEmpty()) {
+                                        currentRecord.list.add(Integer.parseInt(item.trim()));
+                                    }
+                                } catch (NumberFormatException nfe) {
+                                    System.err.println("Warning: Unable to parse number from '" + item.trim() + "'. Skipping.");
+                                }
+                            }
+                        }
+                        break;
+                    case "record":
+                        // Finished processing a record element; add to list.
+                        records.add(currentRecord);
+                        currentRecord = null;
+                        break;
+                    default:
+                        // Ignore other elements.
+                }
+            }
+            currentElement = null;
         }
     }
 
     public static void main(String[] args) {
         try {
-            // Parse XML file and get all records from the file (validates file presence).
-            List<Record> records = parseXML("data.xml");
+            // Parse the XML file using SAX
+            List<Record> records = parseXMLWithSAX("data.xml");
             if (records.isEmpty()) {
                 System.err.println("No records found in the XML file.");
                 return;
             }
 
-            // Process the provided arguments into a set of selected field names (in lowercase for case-insensitive matching)
+            // Process command-line arguments: split by commas and trim them.
             Set<String> selectedFields = new HashSet<>();
             if (args.length == 0) {
-                System.out.println("Please provide fields to display (e.g., name,region,list)");
+                System.out.println("Please provide fields to display (e.g., name,postalZip,region,list)");
                 return;
             } else {
-                // Split each argument on comma and add each trimmed token.
                 for (String arg : args) {
                     String[] tokens = arg.split(",");
                     for (String token : tokens) {
@@ -60,16 +140,13 @@ public class Main {
                     }
                 }
             }
-
             if (selectedFields.isEmpty()) {
                 System.err.println("No valid fields were provided. Please try again.");
                 return;
             }
 
-            // Prepare a list of maps to hold the selected fields for each record.
+            // Prepare a list of maps containing only selected fields for each record.
             List<Map<String, Object>> jsonRecords = new ArrayList<>();
-
-            // For each record, try to collect the selected fields gracefully.
             for (Record record : records) {
                 Map<String, Object> selectedValues = new LinkedHashMap<>();
 
@@ -92,92 +169,49 @@ public class Main {
                     selectedValues.put("list", record.list != null ? record.list : Collections.emptyList());
                 }
 
-                // Only add the record if at least one field was successfully added.
                 if (!selectedValues.isEmpty()) {
                     jsonRecords.add(selectedValues);
                 }
             }
 
-            // Convert the list of selected field maps into JSON format using Jackson.
+            // Convert the list of maps to JSON using Jackson.
             ObjectMapper objectMapper = new ObjectMapper();
             String jsonResult = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(jsonRecords);
-
-            // Print the final JSON result.
             System.out.println(jsonResult);
         } catch (Exception e) {
-            System.err.println("An error occurred while processing the XML or arguments:");
+            System.err.println("An error occurred:");
             e.printStackTrace();
         }
     }
 
     /**
-     * Returns the original string or a default message if null.
+     * Parses the XML file located in resources using the SAX parser.
+     * @param resourceName The name of the resource (e.g., "data.xml").
+     * @return A List of Record objects parsed from the XML.
+     * @throws Exception if there are issues loading or parsing the resource.
      */
-    private static String safeValue(String value) {
-        return value != null ? value : "N/A";
-    }
-
-    // Method to parse the XML file and extract all <record> elements into a List of Record objects.
-    private static List<Record> parseXML(String resourceName) throws Exception {
+    private static List<Record> parseXMLWithSAX(String resourceName) throws Exception {
         InputStream input = Main.class.getClassLoader().getResourceAsStream(resourceName);
         if (input == null) {
             throw new Exception("Resource not found: " + resourceName);
         }
 
-        DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
-        DocumentBuilder dBuilder = dbFactory.newDocumentBuilder();
+        SAXParserFactory factory = SAXParserFactory.newInstance();
+        SAXParser saxParser = factory.newSAXParser();
+        RecordHandler handler = new RecordHandler();
 
-        // Use an InputSource with the specified encoding.
+        // Wrap the InputStream in an InputSource with UTF-8 encoding.
         InputSource is = new InputSource(new InputStreamReader(input, StandardCharsets.UTF_8));
         is.setEncoding("UTF-8");
 
-        Document doc = dBuilder.parse(is);
-        doc.getDocumentElement().normalize();
-
-        NodeList nodeList = doc.getElementsByTagName("record");
-        List<Record> records = new ArrayList<>();
-
-        for (int i = 0; i < nodeList.getLength(); i++) {
-            Node node = nodeList.item(i);
-            if (node.getNodeType() == Node.ELEMENT_NODE) {
-                Element element = (Element) node;
-
-                String name = getTextContent(element, "name");
-                String postalZip = getTextContent(element, "postalZip");
-                String region = getTextContent(element, "region");
-                String country = getTextContent(element, "country");
-                String address = getTextContent(element, "address");
-                String listString = getTextContent(element, "list");
-
-                List<Integer> list = new ArrayList<>();
-                if (listString != null && !listString.isEmpty()) {
-                    String[] listItems = listString.split(",");
-                    for (String item : listItems) {
-                        try {
-                            if (!item.trim().isEmpty()) {
-                                list.add(Integer.parseInt(item.trim()));
-                            }
-                        } catch (NumberFormatException nfe) {
-                            System.err.println("Warning: Unable to parse number from '" + item.trim() + "'. Skipping.");
-                        }
-                    }
-                }
-
-                records.add(new Record(name, postalZip, region, country, address, list));
-            }
-        }
-        return records;
+        saxParser.parse(is, handler);
+        return handler.getRecords();
     }
 
     /**
-     * Safely retrieves text content for a given tag from the element.
-     * Returns an empty string if the tag is not found.
+     * Returns a safe string value or "N/A" if the value is null or empty.
      */
-    private static String getTextContent(Element element, String tagName) {
-        NodeList nodes = element.getElementsByTagName(tagName);
-        if (nodes.getLength() > 0 && nodes.item(0) != null && nodes.item(0).getTextContent() != null) {
-            return nodes.item(0).getTextContent().trim();
-        }
-        return "";
+    private static String safeValue(String value) {
+        return (value != null && !value.isEmpty()) ? value : "N/A";
     }
 }
