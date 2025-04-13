@@ -4,69 +4,140 @@
 package practical2;
 
 
-import com.fasterxml.jackson.dataformat.xml.XmlMapper;
-import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
-
-
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.w3c.dom.*;
+import org.xml.sax.InputSource;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class Main {
 
-    public static class Records {
-        @JacksonXmlElementWrapper(useWrapping = false)
-        public List<Record> record;
+    // Class representing the fields we want to extract from each record in the XML.
+    static class Record {
+        String name;
+        String postalZip;
+        String region;
+        String country;
+        String address;
+        List<Integer> list;
+
+        public Record(String name, String postalZip, String region, String country, String address, List<Integer> list) {
+            this.name = name;
+            this.postalZip = postalZip;
+            this.region = region;
+            this.country = country;
+            this.address = address;
+            this.list = list;
+        }
     }
 
     public static void main(String[] args) {
         try {
-            // Ask the user which fields they want
-            if (args.length > 0) {
-                System.out.println("Arguments received: " + String.join(", ", args));
-                // Your existing logic for handling the arguments
-            }
-            String inputFields =  String.join(", ", args);
+            // Parse XML file and get all records from the file
+            List<Record> records = parseXML("data.xml");
 
-            Set<String> fieldsToPrint = Arrays.stream(inputFields.split(","))
-                                              .map(String::trim)
-                                              .collect(Collectors.toSet());
-
-            InputStreamReader reader = new InputStreamReader(
-                Main.class.getClassLoader().getResourceAsStream("data.xml"),
-                StandardCharsets.UTF_8
-            );
-            
-
-            XmlMapper xmlMapper = new XmlMapper();
-            Records records = xmlMapper.readValue(reader, Records.class);
-
-            for (Record rec : records.record) {
-                System.out.println("========== Record ==========");
-                if (fieldsToPrint.contains("name")) {
-                    System.out.println("Name: " + rec.name);
-                }
-                if (fieldsToPrint.contains("postalZip")) {
-                    System.out.println("PostalZip: " + rec.postalZip);
-                }
-                if (fieldsToPrint.contains("region")) {
-                    System.out.println("Region: " + rec.region);
-                }
-                if (fieldsToPrint.contains("country")) {
-                    System.out.println("Country: " + rec.country);
-                }
-                if (fieldsToPrint.contains("address")) {
-                    System.out.println("Address: " + rec.address);
-                }
-                if (fieldsToPrint.contains("list")) {
-                    System.out.println("List: " + rec.getList());
+            // Process command-line arguments into a set of selected field names (lowercase for case-insensitive matching)
+            Set<String> selectedFields = new HashSet<>();
+            if (args.length == 0) {
+                System.out.println("Please provide fields to display (e.g., name,region,list)");
+                return;
+            } else {
+                for (String arg : args) {
+                    // Split argument by comma to support both multiple arguments and comma-separated lists in a single argument
+                    String[] tokens = arg.split(",");
+                    for (String token : tokens) {
+                        selectedFields.add(token.trim().toLowerCase());
+                    }
                 }
             }
-            //System.out.println("Testing UTF-8 output: São Paulo, Québec, München, 東京");
 
+            // Prepare a list of maps to hold the selected fields for each record.
+            List<Map<String, Object>> jsonRecords = new ArrayList<>();
+
+            for (Record record : records) {
+                Map<String, Object> selectedValues = new HashMap<>();
+
+                if (selectedFields.contains("name")) {
+                    selectedValues.put("name", record.name);
+                }
+                if (selectedFields.contains("postalzip")) {
+                    selectedValues.put("postalZip", record.postalZip);
+                }
+                if (selectedFields.contains("region")) {
+                    selectedValues.put("region", record.region);
+                }
+                if (selectedFields.contains("country")) {
+                    selectedValues.put("country", record.country);
+                }
+                if (selectedFields.contains("address")) {
+                    selectedValues.put("address", record.address);
+                }
+                if (selectedFields.contains("list")) {
+                    selectedValues.put("list", record.list);
+                }
+
+                jsonRecords.add(selectedValues);
+            }
+
+            // Convert the list of selected field maps into JSON format using Jackson
+            ObjectMapper objectMapper = new ObjectMapper();
+            String jsonResult = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(jsonRecords);
+
+            // Print the final JSON result
+            System.out.println(jsonResult);
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
+
+    // Method to parse the XML file and extract all <record> elements into a List of Record objects.
+    private static List<Record> parseXML(String resourceName) throws Exception {
+        InputStream input = Main.class.getClassLoader().getResourceAsStream(resourceName);
+        if (input == null) {
+            throw new Exception("Resource not found: " + resourceName);
+        }
+
+        DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
+        DocumentBuilder dBuilder = dbFactory.newDocumentBuilder();
+
+        // Wrap in InputSource with proper UTF-8 encoding
+        InputSource is = new InputSource(new InputStreamReader(input, StandardCharsets.UTF_8));
+        is.setEncoding("UTF-8");
+
+        Document doc = dBuilder.parse(is);
+        doc.getDocumentElement().normalize();
+
+        NodeList nodeList = doc.getElementsByTagName("record");
+        List<Record> records = new ArrayList<>();
+
+        for (int i = 0; i < nodeList.getLength(); i++) {
+            Node node = nodeList.item(i);
+            if (node.getNodeType() == Node.ELEMENT_NODE) {
+                Element element = (Element) node;
+
+                String name = element.getElementsByTagName("name").item(0).getTextContent();
+                String postalZip = element.getElementsByTagName("postalZip").item(0).getTextContent();
+                String region = element.getElementsByTagName("region").item(0).getTextContent();
+                String country = element.getElementsByTagName("country").item(0).getTextContent();
+                String address = element.getElementsByTagName("address").item(0).getTextContent();
+                String listString = element.getElementsByTagName("list").item(0).getTextContent();
+
+                List<Integer> list = new ArrayList<>();
+                String[] listItems = listString.split(",");
+                for (String item : listItems) {
+                    if (!item.trim().isEmpty()) {
+                        list.add(Integer.parseInt(item.trim()));
+                    }
+                }
+
+                records.add(new Record(name, postalZip, region, country, address, list));
+            }
+        }
+        return records;
+    }
 }
+

@@ -25,6 +25,8 @@ dependencies {
 
     // This dependency is used by the application.
     implementation 'com.google.guava:guava:31.0.1-jre'
+
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.0'
 }
 
 application {
@@ -35,9 +37,6 @@ application {
 run {
     args = project.hasProperty('runArgs') ? project.runArgs.split(',') : []
 }
-
-
-
 
 tasks.named('test') {
     // Use JUnit Platform for unit tests.
