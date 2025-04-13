@@ -33,8 +33,11 @@ application {
 }
 
 run {
-    jvmArgs '-Dfile.encoding=UTF-8'
+    args = project.hasProperty('runArgs') ? project.runArgs.split(',') : []
 }
+
+
+
 
 tasks.named('test') {
     // Use JUnit Platform for unit tests.

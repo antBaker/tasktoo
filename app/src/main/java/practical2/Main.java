@@ -10,7 +10,8 @@ import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
 
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 public class Main {
 
@@ -21,9 +22,20 @@ public class Main {
 
     public static void main(String[] args) {
         try {
+            // Ask the user which fields they want
+            if (args.length > 0) {
+                System.out.println("Arguments received: " + String.join(", ", args));
+                // Your existing logic for handling the arguments
+            }
+            String inputFields =  String.join(", ", args);
+
+            Set<String> fieldsToPrint = Arrays.stream(inputFields.split(","))
+                                              .map(String::trim)
+                                              .collect(Collectors.toSet());
+
             InputStreamReader reader = new InputStreamReader(
-            Main.class.getClassLoader().getResourceAsStream("data.xml"),
-            StandardCharsets.UTF_8
+                Main.class.getClassLoader().getResourceAsStream("data.xml"),
+                StandardCharsets.UTF_8
             );
             
 
@@ -32,9 +44,26 @@ public class Main {
 
             for (Record rec : records.record) {
                 System.out.println("========== Record ==========");
-                System.out.println(rec);
+                if (fieldsToPrint.contains("name")) {
+                    System.out.println("Name: " + rec.name);
+                }
+                if (fieldsToPrint.contains("postalZip")) {
+                    System.out.println("PostalZip: " + rec.postalZip);
+                }
+                if (fieldsToPrint.contains("region")) {
+                    System.out.println("Region: " + rec.region);
+                }
+                if (fieldsToPrint.contains("country")) {
+                    System.out.println("Country: " + rec.country);
+                }
+                if (fieldsToPrint.contains("address")) {
+                    System.out.println("Address: " + rec.address);
+                }
+                if (fieldsToPrint.contains("list")) {
+                    System.out.println("List: " + rec.getList());
+                }
             }
-            System.out.println("Testing UTF-8 output: São Paulo, Québec, München, 東京");
+            //System.out.println("Testing UTF-8 output: São Paulo, Québec, München, 東京");
 
         } catch (Exception e) {
             e.printStackTrace();
