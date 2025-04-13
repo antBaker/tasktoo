@@ -3,10 +3,10 @@
  */
 package practical2;
 
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.w3c.dom.*;
 import org.xml.sax.InputSource;
+
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.InputStream;
@@ -37,61 +37,84 @@ public class Main {
 
     public static void main(String[] args) {
         try {
-            // Parse XML file and get all records from the file
+            // Parse XML file and get all records from the file (validates file presence).
             List<Record> records = parseXML("data.xml");
+            if (records.isEmpty()) {
+                System.err.println("No records found in the XML file.");
+                return;
+            }
 
-            // Process command-line arguments into a set of selected field names (lowercase for case-insensitive matching)
+            // Process the provided arguments into a set of selected field names (in lowercase for case-insensitive matching)
             Set<String> selectedFields = new HashSet<>();
             if (args.length == 0) {
                 System.out.println("Please provide fields to display (e.g., name,region,list)");
                 return;
             } else {
+                // Split each argument on comma and add each trimmed token.
                 for (String arg : args) {
-                    // Split argument by comma to support both multiple arguments and comma-separated lists in a single argument
                     String[] tokens = arg.split(",");
                     for (String token : tokens) {
-                        selectedFields.add(token.trim().toLowerCase());
+                        if (!token.trim().isEmpty()) {
+                            selectedFields.add(token.trim().toLowerCase());
+                        }
                     }
                 }
+            }
+
+            if (selectedFields.isEmpty()) {
+                System.err.println("No valid fields were provided. Please try again.");
+                return;
             }
 
             // Prepare a list of maps to hold the selected fields for each record.
             List<Map<String, Object>> jsonRecords = new ArrayList<>();
 
+            // For each record, try to collect the selected fields gracefully.
             for (Record record : records) {
-                Map<String, Object> selectedValues = new HashMap<>();
+                Map<String, Object> selectedValues = new LinkedHashMap<>();
 
                 if (selectedFields.contains("name")) {
-                    selectedValues.put("name", record.name);
+                    selectedValues.put("name", safeValue(record.name));
                 }
                 if (selectedFields.contains("postalzip")) {
-                    selectedValues.put("postalZip", record.postalZip);
+                    selectedValues.put("postalZip", safeValue(record.postalZip));
                 }
                 if (selectedFields.contains("region")) {
-                    selectedValues.put("region", record.region);
+                    selectedValues.put("region", safeValue(record.region));
                 }
                 if (selectedFields.contains("country")) {
-                    selectedValues.put("country", record.country);
+                    selectedValues.put("country", safeValue(record.country));
                 }
                 if (selectedFields.contains("address")) {
-                    selectedValues.put("address", record.address);
+                    selectedValues.put("address", safeValue(record.address));
                 }
                 if (selectedFields.contains("list")) {
-                    selectedValues.put("list", record.list);
+                    selectedValues.put("list", record.list != null ? record.list : Collections.emptyList());
                 }
 
-                jsonRecords.add(selectedValues);
+                // Only add the record if at least one field was successfully added.
+                if (!selectedValues.isEmpty()) {
+                    jsonRecords.add(selectedValues);
+                }
             }
 
-            // Convert the list of selected field maps into JSON format using Jackson
+            // Convert the list of selected field maps into JSON format using Jackson.
             ObjectMapper objectMapper = new ObjectMapper();
             String jsonResult = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(jsonRecords);
 
-            // Print the final JSON result
+            // Print the final JSON result.
             System.out.println(jsonResult);
         } catch (Exception e) {
+            System.err.println("An error occurred while processing the XML or arguments:");
             e.printStackTrace();
         }
+    }
+
+    /**
+     * Returns the original string or a default message if null.
+     */
+    private static String safeValue(String value) {
+        return value != null ? value : "N/A";
     }
 
     // Method to parse the XML file and extract all <record> elements into a List of Record objects.
@@ -104,7 +127,7 @@ public class Main {
         DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
         DocumentBuilder dBuilder = dbFactory.newDocumentBuilder();
 
-        // Wrap in InputSource with proper UTF-8 encoding
+        // Use an InputSource with the specified encoding.
         InputSource is = new InputSource(new InputStreamReader(input, StandardCharsets.UTF_8));
         is.setEncoding("UTF-8");
 
@@ -119,18 +142,24 @@ public class Main {
             if (node.getNodeType() == Node.ELEMENT_NODE) {
                 Element element = (Element) node;
 
-                String name = element.getElementsByTagName("name").item(0).getTextContent();
-                String postalZip = element.getElementsByTagName("postalZip").item(0).getTextContent();
-                String region = element.getElementsByTagName("region").item(0).getTextContent();
-                String country = element.getElementsByTagName("country").item(0).getTextContent();
-                String address = element.getElementsByTagName("address").item(0).getTextContent();
-                String listString = element.getElementsByTagName("list").item(0).getTextContent();
+                String name = getTextContent(element, "name");
+                String postalZip = getTextContent(element, "postalZip");
+                String region = getTextContent(element, "region");
+                String country = getTextContent(element, "country");
+                String address = getTextContent(element, "address");
+                String listString = getTextContent(element, "list");
 
                 List<Integer> list = new ArrayList<>();
-                String[] listItems = listString.split(",");
-                for (String item : listItems) {
-                    if (!item.trim().isEmpty()) {
-                        list.add(Integer.parseInt(item.trim()));
+                if (listString != null && !listString.isEmpty()) {
+                    String[] listItems = listString.split(",");
+                    for (String item : listItems) {
+                        try {
+                            if (!item.trim().isEmpty()) {
+                                list.add(Integer.parseInt(item.trim()));
+                            }
+                        } catch (NumberFormatException nfe) {
+                            System.err.println("Warning: Unable to parse number from '" + item.trim() + "'. Skipping.");
+                        }
                     }
                 }
 
@@ -139,5 +168,16 @@ public class Main {
         }
         return records;
     }
-}
 
+    /**
+     * Safely retrieves text content for a given tag from the element.
+     * Returns an empty string if the tag is not found.
+     */
+    private static String getTextContent(Element element, String tagName) {
+        NodeList nodes = element.getElementsByTagName(tagName);
+        if (nodes.getLength() > 0 && nodes.item(0) != null && nodes.item(0).getTextContent() != null) {
+            return nodes.item(0).getTextContent().trim();
+        }
+        return "";
+    }
+}
